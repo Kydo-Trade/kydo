@@ -1,0 +1,109 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  # Node 22, not the 18 in `engines`: services/{indexer,trial-engine} pass the
+  # literal `src/**/*.test.ts` to `node --test` (/bin/sh never expands `**`),
+  # so the test runner has to do the globbing itself.
+  NODE_VERSION: "22"
+
+jobs:
+  typescript:
+    name: typecheck · unit tests · app builds
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v5
+
+      # No `version:` here on purpose. pnpm/action-setup@v6 reads
+      # `packageManager` from package.json, and errors out if both are given
+      # ("Multiple versions of pnpm specified"). package.json is the single
+      # source of truth so CI and a contributor's machine cannot drift, which
+      # matters because pnpm-lock.yaml is lockfileVersion 6.0 and pnpm 9+
+      # rewrites it, after which `--frozen-lockfile` fails.
+      - uses: pnpm/action-setup@v6
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+
+      - name: Install
+        run: pnpm install --frozen-lockfile
+
+      # Every service resolves @kydo/sdk through `dist/`, so the SDK has to be
+      # compiled before anything else typechecks. (The Next apps alias it to
+      # packages/sdk/src in webpack and don't need this.)
+      - name: Build SDK
+        run: pnpm --filter @kydo/sdk build
+
+      - name: Typecheck
+        run: pnpm typecheck
+
+      # merkle + pyth (SDK), keeper risk maths, cross-pool hedge detector,
+      # trial engine.
+      - name: Unit tests
+        run: pnpm test:services
+
+      - name: Cache Next.js build cache
+        uses: actions/cache@v6
+        with:
+          path: |
+            apps/terminal/.next/cache
+            apps/investor/.next/cache
+          key: next-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}-${{ github.sha }}
+          restore-keys: |
+            next-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}-
+
+      - name: Build packages, services and both apps
+        run: pnpm build
+
+  program-unit:
+    name: vault unit tests (host)
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+
+      # Property tests for share rounding, dead shares, clawback ordering,
+      # ring-buffer reuse and breach thresholds. No SBF toolchain needed.
+      # `--locked` also guards the edition-2021 pins the README warns about.
+      - name: cargo test -p vault
+        run: cargo test -p vault --locked
+
+  clippy:
+    name: clippy (advisory)
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    # Advisory until the tree is verified clean; drop `continue-on-error` to
+    # make it blocking.
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: cargo clippy
+        run: cargo clippy -p vault --all-targets --locked -- -D warnings
+
+      # No `cargo fmt --check`: the program is written at ~130 columns and 134
+      # lines exceed rustfmt's default max_width of 100, so the check fails
+      # wholesale. Adopting it would mean reformatting all 4,682 lines in one
+      # commit and losing `git blame` on an unaudited financial program.

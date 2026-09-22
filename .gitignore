@@ -1,0 +1,69 @@
+node_modules/
+dist/
+.next/
+target/
+.anchor/
+test-ledger/
+*.log
+.env
+.env.local
+.DS_Store
+coverage/
+pgdata/
+*.tsbuildinfo
+.smoke/
+.devnet.json
+.devstack/
+.localnet.json
+
+# TradingView Advanced Charts. Licensed per-site by TradingView, never commit it
+# TradingView charting library (licensed, never committed), but our skin CSS is ours
+apps/terminal/public/charting_library/**
+!apps/terminal/public/charting_library/
+!apps/terminal/public/charting_library/static/
+!apps/terminal/public/charting_library/static/kydo-dark.css
+!apps/terminal/public/charting_library/static/kydo-light.css
+
+# local design references (not for distribution)
+apps/design/
+
+# Scratch drafts. Superseded by docs/design/. The copies here are older forks
+# of the same files (tokens.md, the onboarding spec), so tracking them would put
+# two versions of one document in the repo and leave the stale one to be found
+# first. The maintained copies are the ones code cites.
+scratch-drafts/
+
+# Generated service keypairs. Never commit key material.
+keys/
+
+# Not part of the published source. deployment-guide.html is a second copy of
+# docs/deployment.md that goes stale the moment the markdown is edited, and the
+# Vault Ledger PDF is a 1 MB binary that cannot be diffed or reviewed. Both stay
+# available to the team; neither belongs in a repository people read.
+docs/deployment-guide.html
+requirement/The Vault Ledger.pdf
+
+# Round-1 audit analysis, kept out of the repo deliberately: it is an internal
+# working record of every weakness found in this system, adjudicated per
+# finding, and it is shared on request rather than shipped with the source.
+# The remediation it produced is in the commit history; the analysis is not.
+docs/audit-analysis/
+docs/audit-analysis.zip
+
+# Session handover notes. Working material, never published.
+HANDOVER.md
+
+# Dated internal design reviews: a screenshot-by-screenshot consistency pass, a
+# UX run-through and a post-port feature audit. Working notes tied to a moment
+# in the build, not documentation of how the system works.
+docs/design/ux-review.md
+docs/design/ui-consistency-pass.md
+docs/design/feature-audit.md
+
+# Specification, interface and operations documents. Kept with the team and
+# shared on request rather than published with the source.
+docs/api-contract.md
+docs/deployment.md
+docs/drift-integration.md
+docs/design/tokens.md
+requirement/

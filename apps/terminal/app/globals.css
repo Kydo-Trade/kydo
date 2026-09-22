@@ -1,0 +1,842 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ----------------------------------------------------------------------
+ * Design tokens. The shared @kydo/ui stylesheet is imported *before* this
+ * file (see app/layout.tsx) so these `--kydo-*` overrides win and both the
+ * shared primitives (toasts, stepper, pills…) and the terminal's own
+ * classes render from one palette. Keep in sync with tailwind.config.ts.
+ * -------------------------------------------------------------------- */
+:root {
+  color-scheme: dark;
+
+  /* ====================================================================
+   * FIGMA PRIMITIVES. "Dev Ready" features and states
+   * Source: docs/design/figma-tokens.json (Figma variable defs, node 1:50976)
+   * These are the raw ramps. Nothing should reference them directly except
+   * the semantic tokens below. Style components against --t-* / --kydo-*.
+   * ================================================================== */
+
+  /* ------------------------------------------------------------------
+   * Kydo brand.
+   *
+   * The mark is two greens: #527b2f for the solid shape and #8da750 for the
+   * rays. Neither survives contact with a near-black UI as a primary action.
+   * #527b2f carries 3.89:1 against the ink glyph on it, below the 4.5 a
+   * button label needs, and #8da750 at 7.15 is legible but visibly flat next
+   * to the rest of the interface.
+   *
+   * So the ramp is built *from* the sage and lifted: 500 is #a9cd5e, which is
+   * the same hue family and reads as the logo's green, at 10.65:1 ink-on-fill
+   * and 9.89:1 against the page. 600 is the mark's own sage exactly, so the
+   * logo and the UI meet at one step of the same ramp.
+   * ------------------------------------------------------------------ */
+  --kydo-deep: #527b2f; /* the mark's solid shape. Fills and rules, never a text background */
+  --kydo-sage: #8da750; /* the mark's rays. Identical to --fig-main-600 below */
+
+  /* Main Color. Kydo green. The primary action colour ("Main Button" = 500). */
+  --fig-main-200: #d6e8ac;
+  --fig-main-300: #c4dd8b;
+  --fig-main-400: #b6d573;
+  --fig-main-500: #a9cd5e;
+  --fig-main-600: #8da750;
+  --fig-main-700: #6d8a3f;
+
+  /* Green. Positive / profit / buy.
+     Cooled to match --t-up. Three greens on one screen. Brand, profit and the
+     buy button's mint. Was one too many; profit and buy are the same idea, so
+     they are now one ramp, and the brand green is the only other. */
+  --fig-green-100: #b9f7d6;
+  --fig-green-200: #86efb6;
+  --fig-green-300: #4fe294;
+  --fig-green-500: #00c46a; /* Green/Main Color. Matches --t-up */
+  --fig-green-600: #00a659;
+  --fig-green-700: #008747;
+  --fig-green-950: #002400;
+
+  /* Red. Negative / loss. Note the design's red runs orange, not crimson. */
+  --fig-red-200: #ffa58a;
+  --fig-red-300: #ff825c;
+  --fig-red-400: #ff5f2e;
+
+  /* Yellow. Warning / pending */
+  --fig-yellow-500: #ffdd00;
+
+  /* Backgrounds */
+  --fig-bg-500: #f8f8f8;
+  --fig-bg-600: #1c1c1c;
+  --fig-bg-700: #202020;
+  --fig-bg-750: #232323;
+  --fig-bg-800: #1b1b1b;
+  --fig-bg-900: #161616;
+  --fig-bg-950: #0e0e0e;
+  --fig-bg-additional: #151514;
+  --fig-bg-pattern-900: #171717;
+
+  /* Text ramp (doubles as the border ramp at the dark end) */
+  --fig-text-500: #f8f8f8;
+  --fig-text-550: #8d8d8d;
+  --fig-text-600: #606060;
+  --fig-text-700: #6e6e6e;
+  --fig-text-800: #404040;
+  --fig-text-900: #2c2c2c;
+  --fig-text-950: #0e0e0e;
+
+  /* Unbound in Figma. A raw hex on the nav bar's segmented control and
+     account pill, between Text/900 and Text/800. */
+  --fig-stroke: #303030;
+
+  /* ---- theme tokens (RGB triplets for Tailwind alpha support). DARK is the default ---- */
+  --t-bg: 14 14 14; /* #0e0e0e. BG/950 */
+  --t-panel: 22 22 22; /* #161616. BG/900 */
+  --t-panel2: 32 32 32; /* #202020. BG/700 */
+  --t-panel3: 35 35 35; /* #232323. BG/750 */
+  --t-line: 48 48 48; /* #303030. The nav bar's hairline, so `border-line`
+                         and `border-fig-stroke` are the same rule */
+  --t-line2: 64 64 64; /* #404040. Text/800 */
+  --t-muted: 141 141 141; /* #8d8d8d. Text/550 */
+  --t-fg: 248 248 248; /* #f8f8f8. Text/500 */
+  /* Cooled from #00d05b. With the accent now a yellow-green, profit and brand
+     were two greens 30° apart; at 152° against the accent's 82° they read as
+     different colours rather than two shades of one. */
+  --t-up: 0 196 106; /* #00c46a. Profit */
+  --t-down: 255 95 46; /* #ff5f2e. Red/400 */
+  --t-amber: 255 221 0; /* #ffdd00. Yellow/Main Color */
+  --t-accent: 169 205 94; /* #a9cd5e. Kydo green, Main Color/500 */
+  --t-ink: 14 14 14; /* #0e0e0e. Text/950, for text on lime/green fills */
+  --t-scrollbar: #404040;
+
+  /* shared @kydo/ui primitives read these. Keep in lock-step with the triplets above */
+  --kydo-accent: #a9cd5e;
+  --kydo-accent-hover: #b6d573;
+  --kydo-on-accent: #0e0e0e; /* dark glyph on the bright lime/green/red fills */
+  --kydo-surface: #161616; /* panel */
+  --kydo-surface-2: #202020; /* panel2 */
+  --kydo-surface-3: #232323; /* panel3 */
+  --kydo-line: #303030;
+  --kydo-text: #f8f8f8;
+  --kydo-text-muted: #8d8d8d;
+  --kydo-good: #00c46a;
+  --kydo-warn: #ffdd00;
+  --kydo-bad: #ff5f2e;
+  --kydo-danger: #ff5f2e;
+  --kydo-info: #a9cd5e;
+  --kydo-radius: 6px;
+
+  /* Typography. Geist / Geist Mono per the Figma type styles.
+     Fallbacks keep rendering sane until `geist` is installed and wired in
+     app/layout.tsx; see the design token reference, section Fonts. */
+  --kydo-font: "Geist", var(--font-geist-sans), -apple-system, BlinkMacSystemFont,
+    "Segoe UI", Inter, Roboto, Helvetica, Arial, sans-serif;
+  --kydo-mono: "Geist Mono", var(--font-geist-mono), ui-monospace, SFMono-Regular,
+    "SF Mono", Menlo, monospace;
+}
+
+html,
+body {
+  height: 100%;
+  background: rgb(var(--t-bg));
+  color: var(--kydo-text);
+  font-family: var(--kydo-font);
+  font-size: 13px;
+  line-height: 18px;
+  -webkit-font-smoothing: antialiased;
+}
+
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--t-scrollbar) rgb(var(--t-bg));
+}
+*::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+*::-webkit-scrollbar-thumb {
+  background: var(--t-scrollbar);
+  border-radius: 4px;
+}
+
+/* Every number in the terminal is monospaced + tabular. */
+.num {
+  font-family: var(--kydo-mono);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.01em;
+}
+
+/* Keyboard focus: one ring everywhere, never on mouse clicks. */
+:focus {
+  outline: none;
+}
+:focus-visible {
+  outline: 2px solid var(--kydo-accent);
+  outline-offset: 1px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/* Component classes live in the components layer so Tailwind utilities (w-20, py-0…) can override them. */
+@layer components {
+  /* ---- surfaces & hierarchy ---- */
+  .panel {
+    @apply bg-panel border border-line rounded-md;
+  }
+  .panel-title {
+    @apply h-8 shrink-0 px-2.5 flex min-w-0 items-center justify-between gap-2 border-b border-line text-xxs font-medium uppercase tracking-wider text-muted;
+  }
+  /* secondary text inside a panel title (not a label) */
+  .panel-title .meta {
+    @apply normal-case tracking-normal font-normal min-w-0 truncate;
+  }
+  .panel-body {
+    @apply p-2;
+  }
+  .label {
+    @apply text-xxs uppercase tracking-wider text-muted font-medium;
+  }
+  .value {
+    @apply num text-xs text-fg;
+  }
+  .value-lg {
+    @apply num text-lg leading-tight text-fg font-medium;
+  }
+
+  /* ---- controls: 28 px tall everywhere ---- */
+  /* `whitespace-nowrap` with no upper bound let a long label paint straight
+     out of the button and, in the 272 px terminal columns, out of the panel
+     behind it. "Claim USDC · 2d 19h 14m" clipped at BOTH ends because an
+     overflowing centred flex box spills symmetrically. `max-w-full` +
+     `overflow-hidden` makes the button the boundary: a label that does not fit
+     is cut at the button's own edge and can never widen or escape its box.
+     This is a guard, not a licence. A label that actually needs clipping is a
+     layout to fix, and `.btn-ell` below is the honest version of it. */
+  .btn {
+    @apply inline-flex items-center justify-center gap-1 h-8 px-3 rounded-md text-xs font-medium whitespace-nowrap select-none
+      max-w-full min-w-0 overflow-hidden
+      border border-line bg-panel2 text-fg transition-colors
+      hover:bg-panel3 hover:border-line2
+      active:translate-y-px
+      disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-panel2 disabled:hover:border-line disabled:active:translate-y-0;
+  }
+  /* For a button whose label is genuinely variable (a countdown, an address, a
+     market name): wrap the text in a child so it can ellipsise. A bare text
+     node inside a flex container is an anonymous item and `text-overflow`
+     cannot reach it, which is why this needs an element. */
+  .btn-ell > span,
+  .btn-ell > .btn__label {
+    @apply min-w-0 truncate;
+  }
+  .btn-sm {
+    @apply h-7 px-2 text-xs;
+  }
+  .btn-ghost {
+    @apply bg-transparent border-transparent text-muted hover:text-fg hover:bg-panel2 hover:border-transparent disabled:hover:bg-transparent;
+  }
+  .btn-primary {
+    @apply bg-accent border-accent text-ink hover:bg-fig-main-400 hover:border-fig-main-400 disabled:hover:bg-accent disabled:hover:border-accent;
+  }
+  /* Buy/sell fills. Both Figma ramps are bright, so the label is dark ink.
+     White on Green/600 is ~2.0:1 and on Red/400 ~3.0:1. */
+  .btn-up {
+    @apply border-up text-ink hover:brightness-110 disabled:hover:brightness-100;
+    background-image: linear-gradient(135deg, var(--fig-green-500), var(--fig-green-600));
+  }
+  .btn-down {
+    @apply border-down text-ink hover:brightness-110 disabled:hover:brightness-100;
+    background-image: linear-gradient(135deg, var(--fig-red-300), var(--fig-red-400));
+  }
+  /* Onboarding / wallet CTA (Figma 97:62013 "Connect Wallet", 97:113220
+     "Open Terminal"): the lime pill. The design reserves Green/300 for trading
+     actions (Enable Trading, Confirm, Deposit in the ticket) and uses lime
+     for everything on the way in. */
+  .btn-lime {
+    @apply flex h-12 w-full min-w-0 items-center justify-center gap-2 overflow-hidden rounded-full border-0 bg-accent px-6 text-h10 font-semibold text-ink transition-colors hover:bg-fig-main-400 disabled:opacity-50 disabled:hover:bg-accent;
+  }
+
+  /* Secondary pill (Figma 54:17759 "View Pool"): dark fill, hairline white
+     stroke, shadow inset from both edges. Used for a card's own action, where
+     the green CTA would compete with the page's primary button. */
+  .btn-pill {
+    @apply flex h-12 w-full min-w-0 items-center justify-center overflow-hidden rounded-full border border-fg bg-fig-bg-700 px-3 text-h11 font-medium text-fg shadow-[inset_0_-4px_6px_0_rgba(0,0,0,0.16),inset_0_4px_6px_0_rgba(0,0,0,0.16)] transition-colors hover:bg-fig-bg-750;
+  }
+  /* The order ticket's primary action (Figma 127:155642 "CTA"): a full-width
+     48 px pill in Green/300. Note the design reserves the lime for wallet and
+     nav actions. The trading CTA is green. */
+  .btn-cta {
+    @apply flex h-12 w-full min-w-0 items-center justify-center gap-2 overflow-hidden rounded-full border-0 bg-fig-green-300 px-3 text-h10 font-semibold text-ink transition-colors hover:bg-fig-green-200 disabled:opacity-50 disabled:hover:bg-fig-green-300;
+  }
+
+  /* Side-tinted CTA. The design draws one green action button; the side it
+     places is carried by its colour (green buy / red sell), so the button and
+     the Buy/Sell segment above it always agree. */
+  .btn-cta--sell {
+    @apply bg-fig-red-300 hover:bg-fig-red-200 disabled:hover:bg-fig-red-300;
+  }
+
+  /* ---- Hyperliquid-style controls ---- */
+  /* underline tabs (order type, book/trades) */
+  .hl-tabs {
+    @apply flex items-center border-b border-fig-stroke px-2;
+  }
+  .hl-tab {
+    @apply h-10 px-4 text-sm font-medium text-muted border-b-2 border-transparent -mb-px whitespace-nowrap transition-colors hover:text-fg;
+  }
+  .hl-tab[aria-selected="true"],
+  .hl-tab--active {
+    @apply text-fg border-accent;
+  }
+  /* Panel-header tabs (Figma 133:156190 "Order Book | Trades"): 10 px, no
+     underline. The active tab is marked by colour alone. Scoped as a variant
+     so the taller chart tabs keep the underline treatment. */
+  .hl-tabs--panel {
+    @apply gap-4 border-0 p-2;
+  }
+  .hl-tabs--panel .hl-tab {
+    @apply h-auto p-0 text-[10px] font-medium leading-none text-fig-text-700 border-0;
+  }
+  .hl-tabs--panel .hl-tab[aria-selected="true"],
+  .hl-tabs--panel .hl-tab--active {
+    @apply text-fg border-0;
+  }
+  /* The design's one recurring surface. A pill with a hairline stroke, the
+     near-black additional background and an inset top shadow. Is applied
+     directly by .seg and .hl-field below (Figma 127:155610, 73:17112, 73:17124). */
+
+  /* segmented buy / sell */
+  .seg {
+    @apply grid grid-cols-2 gap-1 p-1 rounded-full border border-fig-stroke bg-fig-bg-additional shadow-[inset_0_6px_16px_0_rgba(0,0,0,0.16)];
+  }
+  .seg__btn {
+    @apply h-8 min-w-0 truncate rounded-full text-h11 font-medium text-fig-text-600 transition-colors hover:text-fg;
+  }
+  /* neutral "selected" segment. The design's near-white pill (Figma Form
+     Container: Cross / Isolated). Used where the two options are not buy/sell. */
+  .seg__btn--on {
+    @apply bg-fig-bg-500 text-fig-text-950 hover:text-fig-text-950;
+  }
+  .seg__btn--buy {
+    @apply bg-up text-ink hover:text-ink;
+  }
+  /* text-ink, not white: the palette's down is Red/400 #ff5f2e, on which white
+     is ~3:1. See the design token reference. */
+  .seg__btn--sell {
+    @apply bg-down text-ink hover:text-ink;
+  }
+  /* label-left / value-right field (Figma 127:155610 "Form") */
+  .hl-field {
+    @apply flex min-w-0 items-center justify-between gap-2 h-12 px-4 py-2 rounded-full border border-fig-stroke bg-fig-bg-additional shadow-[inset_0_6px_16px_0_rgba(0,0,0,0.16)] transition-colors focus-within:border-fg/40;
+  }
+  /* The label gives way, never the value: a field row in the 272 px ticket is
+     read for its number, and "Leverage" losing its tail costs nothing next to
+     "20x" losing a digit. */
+  .hl-field > .hl-field__label {
+    @apply min-w-0 truncate text-h11 text-fig-text-700;
+  }
+  .hl-field > input {
+    @apply flex-1 min-w-0 bg-transparent text-right num text-h11 text-fg outline-none placeholder:text-fig-text-700;
+  }
+  .hl-field > .hl-field__unit {
+    @apply text-h11 text-fig-text-700 whitespace-nowrap;
+  }
+  .hl-field--warn {
+    @apply border-amber;
+  }
+  .hl-field--bad {
+    @apply border-down;
+  }
+  /* range slider (Hyperliquid style). The track, fill, ticks and thumb are plain elements so they
+     render identically in every browser; the native <input type=range> sits invisibly on top for
+     dragging, keyboard and screen readers. 10 px side padding keeps the 20 px thumb inside the row. */
+  .range-wrap {
+    @apply relative h-8 min-w-0 select-none;
+  }
+  .range-wrap--disabled {
+    @apply opacity-40;
+  }
+  .range-track {
+    @apply absolute left-[10px] right-[10px] top-1/2 -translate-y-1/2 h-1 rounded-[10px] bg-fig-bg-750 overflow-hidden;
+  }
+  .range-fill {
+    @apply h-full bg-accent rounded-full transition-[width] duration-75;
+  }
+  .range-ticks {
+    @apply absolute left-[10px] right-[10px] top-1/2 -translate-y-1/2 flex justify-between pointer-events-none;
+  }
+  .range-tick {
+    @apply w-2 h-2 rounded-full bg-line2 -mx-1 border-2 border-panel;
+  }
+  .range-tick--on {
+    @apply bg-accent;
+  }
+  /* 16 px lime dot, matching the design's RadioButton thumb (Figma 121:126224). */
+  .range-thumb {
+    @apply absolute top-1/2 size-4 -translate-x-1/2 -translate-y-1/2 rounded-full bg-accent shadow-[0_0_0_2px_rgb(var(--t-bg))] pointer-events-none transition-transform duration-75;
+  }
+  .range-wrap:hover .range-thumb,
+  .range-wrap:focus-within .range-thumb {
+    @apply scale-110 shadow-[0_0_0_2px_rgb(var(--t-bg)),0_0_0_7px_rgba(var(--t-accent),0.25)];
+  }
+  .range-input {
+    @apply absolute inset-0 w-full h-full m-0 opacity-0 cursor-pointer appearance-none disabled:cursor-not-allowed;
+  }
+  /* a panel hosting other panels (tabbed chart): inner panels lose their own frame */
+  .panel-nest .panel {
+    @apply border-0 rounded-none;
+  }
+  /* stat in the market strip */
+  /* `shrink-0`, not `min-w-0`: the labels are `whitespace-nowrap`, so letting
+     the item shrink below its content clipped them mid-word and ran one stat
+     into the next. The rail scrolls instead. */
+  .stat {
+    @apply flex shrink-0 flex-col gap-0.5 px-3 border-l border-line first:border-l-0 first:pl-0;
+  }
+  .stat__label {
+    @apply text-xxs text-muted whitespace-nowrap;
+  }
+  .stat__value {
+    @apply num text-xs text-fg whitespace-nowrap;
+  }
+  .btn-outline-down {
+    @apply bg-transparent border-down/60 text-down hover:bg-down/10 hover:border-down;
+  }
+  .btn-outline-amber {
+    @apply bg-transparent border-amber/60 text-amber hover:bg-amber/10 hover:border-amber;
+  }
+  .btn-outline-up {
+    @apply bg-transparent border-up/60 text-up hover:bg-up/10 hover:border-up;
+  }
+  .btn[aria-pressed="true"] {
+    @apply bg-panel3 border-line2 text-fg;
+  }
+
+  .input {
+    @apply h-8 w-full bg-bg border border-line rounded-md px-2.5 text-xs text-fg num placeholder:text-muted/70
+      focus:outline-none focus:border-accent disabled:opacity-50;
+  }
+  textarea.input {
+    @apply h-auto py-1.5 leading-relaxed;
+  }
+  select.input {
+    @apply pr-6;
+  }
+
+  /* ---- tables ---- */
+  .tbl {
+    @apply w-full text-xs border-collapse;
+  }
+  .tbl th {
+    @apply text-h11 uppercase tracking-wider text-fig-text-600 font-medium px-3 h-9 border-b border-fig-stroke whitespace-nowrap bg-fig-bg-900 sticky top-0 z-[1];
+  }
+  /* Default headers to left, but at ZERO specificity (:where) so a per-column
+     `text-right`/`text-center` utility on an individual <th> wins. Otherwise
+     `.tbl th` (0,1,1) beats the utility (0,1,0) and numeric headers stay
+     left-aligned while their values right-align. */
+  .tbl :where(th) {
+    text-align: left;
+  }
+  .tbl td {
+    @apply px-3 py-2 border-b border-fig-text-900 whitespace-nowrap align-middle;
+  }
+  /* `table-auto` sizes columns to their longest cell and assumes the table can
+     grow. In a fixed-width panel it cannot, so it paints outside instead. The
+     Account panel's 322 px of table inside a 270 px panel is where the clipped
+     "ASSET / ACCOUNT" and "BAL" headers came from. `.tbl-fit` makes the panel
+     the authority: the columns honour it and a long label ellipsises. Give the
+     first column a width, or the halves split evenly. */
+  .tbl-fit {
+    @apply table-fixed;
+  }
+  .tbl-fit th,
+  .tbl-fit td {
+    @apply truncate;
+  }
+  .tbl tbody tr:hover td {
+    @apply bg-panel2/60;
+  }
+  .tbl tr[aria-selected="true"] td {
+    @apply bg-panel2;
+  }
+  .tbl-dense td {
+    @apply py-0.5;
+  }
+  /* Order book / trades rows (Figma 133:156209): 20 px rows, 10 px Geist, no
+     row rules. The depth shading carries the structure instead. */
+  .tbl-book th {
+    @apply h-6 px-1 text-[10px] font-medium normal-case tracking-normal border-0;
+  }
+  .tbl-book td {
+    @apply h-5 px-1 py-0 text-[10px] border-0;
+  }
+
+  /* ---- tabs ---- */
+  .tabs {
+    @apply flex items-center gap-0.5;
+  }
+  .tab {
+    @apply inline-flex items-center gap-1.5 h-8 px-3 rounded-md text-xs font-medium text-muted whitespace-nowrap
+      hover:text-fg hover:bg-panel2 transition-colors;
+  }
+  .tab[aria-selected="true"] {
+    @apply bg-panel3 text-fg;
+  }
+  .tab .count {
+    @apply num text-xxs px-1 min-w-[16px] h-4 inline-flex items-center justify-center rounded-sm bg-line text-muted;
+  }
+  .tab[aria-selected="true"] .count {
+    @apply text-fg;
+  }
+
+  /* ---- price chart, TradingView / Drift toolbar ---- */
+  .tv-btn {
+    @apply inline-flex items-center gap-1 h-7 px-2 rounded text-sm font-medium text-muted whitespace-nowrap cursor-pointer select-none
+      hover:text-fg hover:bg-panel2 transition-colors;
+  }
+  .tv-btn--on {
+    @apply text-fg font-semibold;
+  }
+  .tv-sep {
+    @apply w-px h-4 bg-line mx-1 shrink-0;
+  }
+  /* Mark | Oracle segmented switch */
+  .tv-seg {
+    @apply inline-flex items-center h-7 p-0.5 rounded-md bg-panel2;
+  }
+  .tv-seg > button {
+    @apply h-6 px-2.5 rounded text-xs font-medium text-muted whitespace-nowrap transition-colors hover:text-fg disabled:opacity-40 disabled:hover:text-muted;
+  }
+  .tv-seg > button[aria-checked="true"] {
+    @apply bg-panel3 text-fg;
+  }
+  /* the page's Chart / Equity-curve tabs sit in the toolbar's right end like TV's Chart · Depth · … */
+  .chart-tab {
+    @apply h-7 px-2 text-sm font-medium text-muted whitespace-nowrap transition-colors hover:text-fg;
+  }
+  .chart-tab[aria-selected="true"] {
+    @apply text-fg;
+  }
+  /* B / S / C trade discs */
+  .tv-disc {
+    @apply flex items-center justify-center w-6 h-6 rounded-full text-xs font-bold text-ink shadow-pop
+      transition-transform hover:scale-110 focus-visible:scale-110 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-fg;
+  }
+  .tv-bubble {
+    @apply absolute top-1/2 -translate-y-1/2 px-3.5 py-2 rounded-lg bg-fig-bg-750 border border-line2 shadow-pop pointer-events-none;
+  }
+  .tv-bubble::after {
+    content: "";
+    @apply absolute top-1/2 -translate-y-1/2 w-2.5 h-2.5 rotate-45 bg-fig-bg-750 border-line2;
+  }
+  .tv-bubble--left {
+    right: calc(100% + 14px);
+  }
+  .tv-bubble--left::after {
+    @apply -right-[6px] border-t border-r;
+  }
+  .tv-bubble--right {
+    left: calc(100% + 14px);
+  }
+  .tv-bubble--right::after {
+    @apply -left-[6px] border-b border-l;
+  }
+  /* % · log · auto under the price scale */
+  .tv-foot {
+    @apply h-5 px-1.5 rounded-sm text-muted transition-colors hover:text-fg hover:bg-panel2;
+  }
+  .tv-foot--on {
+    @apply text-fg bg-panel3;
+  }
+  .tv-foot--amber {
+    @apply text-amber;
+  }
+
+  /* ---- ticker strip (bulk.trade-style quick market switcher) ---- */
+  .ticker {
+    @apply flex items-center gap-1 h-9 px-2 overflow-x-auto shrink-0 rounded-md border border-line bg-panel;
+  }
+  .ticker__item {
+    @apply inline-flex items-center gap-1.5 h-7 px-2 rounded text-xs whitespace-nowrap text-muted transition-colors hover:text-fg hover:bg-panel2;
+  }
+  .ticker__item[aria-selected="true"] {
+    @apply text-fg bg-panel2;
+  }
+
+  /* Option checks (Figma 121:126227/121:126228): 16 px, rounded-4, filled with
+     Main Color/500 when on. The browser picks the tick glyph's colour from the
+     fill, which on this lime gives the dark tick the design draws. */
+  .tick {
+    @apply size-4 rounded-[4px] accent-accent cursor-pointer disabled:cursor-not-allowed disabled:opacity-50;
+  }
+
+  /* ---- rich hover tooltip (bulk-style TIF explainer) ---- */
+  .tv-tip {
+    @apply hidden absolute bottom-full right-0 mb-2 w-[300px] p-3 rounded-md bg-panel3 border border-line2 shadow-pop text-xs leading-relaxed text-muted z-40;
+  }
+  .group:hover .tv-tip,
+  .group:focus-within .tv-tip {
+    @apply block;
+  }
+
+  /* ---- walkthrough spotlight ---- */
+  .tour-target {
+    outline: 2px solid rgb(var(--t-accent));
+    outline-offset: 4px;
+    border-radius: 10px;
+    box-shadow: 0 0 0 6px rgba(183, 255, 0, 0.14);
+    transition: box-shadow 200ms ease;
+  }
+
+  /* ---- pills (terminal-local variant of .kydo-pill) ---- */
+  /* Soft tint, no stroke. See the note on `.kydo-pill`. The label carries the
+     colour at full strength instead of splitting it between text and border. */
+  .pill {
+    @apply inline-flex h-6 max-w-full min-w-0 items-center gap-1.5 truncate rounded-full px-2.5 text-h11 font-medium text-muted;
+    background: color-mix(in srgb, rgb(var(--t-muted)) 14%, transparent);
+  }
+  .pill-up {
+    @apply text-up;
+    background: color-mix(in srgb, rgb(var(--t-up)) 15%, transparent);
+  }
+  .pill-down {
+    @apply text-down;
+    background: color-mix(in srgb, rgb(var(--t-down)) 15%, transparent);
+  }
+  .pill-amber {
+    @apply text-amber;
+    background: color-mix(in srgb, rgb(var(--t-amber)) 15%, transparent);
+  }
+  .pill-accent {
+    @apply text-accent border-accent/50;
+  }
+  .dot {
+    @apply inline-block w-1.5 h-1.5 rounded-full bg-muted shrink-0;
+  }
+
+  /* ---- inline notices (pre-flight text, warnings) ---- */
+  /* ---- notices ----
+     One box for every message the app has to give: a blocked order, a paused
+     platform, a lockup warning, an indexer outage. Built like the rest of the
+     system (16 px radius, hairline stroke, the inset shadow) with a
+     tone-tinted glyph drawn by ::before, so the 50-odd existing call sites
+     (`<div className="notice notice-bad">…</div>`) need no markup change.
+
+     The message stays white. A wall of red type is hard to read, and the glyph
+     and the stroke already carry the tone, which is why the tone travels in
+     --notice-tone rather than in `color`. */
+  .notice {
+    --notice-tone: rgb(var(--t-muted));
+    @apply relative flex items-start gap-2.5 rounded-[16px] border border-fig-stroke bg-fig-bg-additional px-3 py-2.5 text-h11 leading-double text-fg
+      shadow-[inset_0_6px_16px_0_rgba(0,0,0,0.16)];
+  }
+  .notice::before {
+    content: "i";
+    color: var(--notice-tone);
+    background: color-mix(in srgb, var(--notice-tone) 18%, transparent);
+    @apply mt-px grid size-[18px] shrink-0 place-items-center rounded-full text-[11px] font-bold leading-none;
+  }
+  .notice-ok {
+    --notice-tone: rgb(var(--t-up));
+    @apply border-up/40;
+  }
+  .notice-ok::before {
+    content: "✓";
+  }
+  .notice-warn {
+    --notice-tone: rgb(var(--t-amber));
+    @apply border-amber/50;
+  }
+  .notice-warn::before {
+    content: "!";
+  }
+  .notice-bad {
+    --notice-tone: rgb(var(--t-down));
+    @apply border-down/50;
+  }
+  .notice-bad::before {
+    content: "!";
+  }
+  .notice-info {
+    --notice-tone: rgb(var(--t-accent));
+  }
+
+  /* ---- gauges (risk HUD, trial criteria) ---- */
+  .gauge {
+    @apply min-w-0;
+  }
+  .gauge__head {
+    @apply flex min-w-0 items-baseline justify-between gap-2 text-xxs leading-3;
+  }
+  .gauge__label {
+    @apply text-muted truncate;
+  }
+  .gauge__val {
+    @apply num shrink-0 whitespace-nowrap;
+  }
+  .gauge__track {
+    @apply h-1.5 bg-line rounded-sm mt-1 overflow-hidden;
+  }
+  .gauge__fill {
+    @apply h-full rounded-sm transition-[width] duration-300;
+  }
+
+  /* ---- key/value rows ---- */
+  .kv {
+    @apply flex items-baseline justify-between gap-3 text-h11 leading-5;
+  }
+  .kv > :first-child {
+    @apply text-fig-text-600 whitespace-nowrap;
+  }
+  .kv > :last-child {
+    @apply num text-right text-fg min-w-0 truncate;
+  }
+
+  /* ---- popover ---- */
+  /* ---- page container ----
+     One gutter for the whole app. The nav bar centres its row in 1312 px with
+     a 24 px gutter, so every page that isn't the terminal does the same and the
+     wordmark lines up with the first thing under it. (Four different containers
+     (px-9, lg:px-6, p-3 and the header's px-6) is why nothing lined up.)
+     The terminal is deliberately wider: it is a full-bleed grid, and the design
+     draws it at a 44 px gutter edge to edge. */
+  .page {
+    @apply mx-auto flex w-full max-w-[1312px] flex-col gap-4 px-6 py-4;
+  }
+
+  /* ---- dialogs ----
+     The design's card, floated: the 24 px radius and the top-lit gradient the
+     hero cards use, so a modal reads as the same material as the page rather
+     than as a system alert. */
+  .modal {
+    @apply flex max-w-full flex-col gap-4 rounded-[24px] border border-fig-stroke bg-gradient-to-t from-fig-bg-pattern-900 to-fig-bg-600 p-5 shadow-pop;
+  }
+  .modal__title {
+    @apply text-h9 font-medium text-fg;
+  }
+  .modal__overlay {
+    @apply fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4 backdrop-blur-[2px];
+  }
+
+  .popover {
+    @apply absolute z-[60] mt-1.5 min-w-[260px] p-2 rounded-md bg-panel border border-line shadow-pop text-xs;
+  }
+
+  /* ---- column resize gutter ---- */
+  /* 8 px wide: it *is* the gap between columns, and the drag target. */
+  .gutter {
+    @apply relative w-2 cursor-col-resize shrink-0 rounded transition-colors hover:bg-accent/30 focus-visible:bg-accent/40;
+  }
+
+  /* ---- disclosure ---- */
+  .disclosure > summary {
+    @apply cursor-pointer list-none text-h11 uppercase tracking-wider text-fig-text-600 select-none inline-flex items-center gap-1.5 h-8 rounded-full px-2 -mx-2 transition-colors hover:text-fg hover:bg-fig-bg-800;
+  }
+  .disclosure > summary::-webkit-details-marker {
+    display: none;
+  }
+  /* chevron drawn from an SVG mask so it inherits currentColor */
+  .disclosure > summary::before {
+    content: "";
+    @apply inline-block w-3 h-3 bg-current transition-transform duration-150;
+    mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='black' stroke-width='1.75' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M6 4l4 4-4 4'/%3E%3C/svg%3E") center / contain no-repeat;
+    -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='black' stroke-width='1.75' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M6 4l4 4-4 4'/%3E%3C/svg%3E") center / contain no-repeat;
+  }
+  .disclosure[open] > summary::before {
+    transform: rotate(90deg);
+  }
+
+  /* ---- key/value lists: hairline dividers make long stacks scannable ---- */
+  .kv-list > .kv {
+    @apply py-1 border-b border-line/50;
+  }
+  .kv-list > .kv:last-child {
+    @apply border-b-0;
+  }
+
+  /* ---- stage accent: a coloured left edge on "what to do now" cards ---- */
+  .stage-up {
+    @apply border-l-2 border-l-up;
+  }
+  .stage-warn {
+    @apply border-l-2 border-l-amber;
+  }
+  .stage-down {
+    @apply border-l-2 border-l-down;
+  }
+  .stage-accent {
+    @apply border-l-2 border-l-accent;
+  }
+}
+
+/* ---- shared primitive tweaks (scoped to the terminal) ---- */
+.kydo-wallet-btn--sm,
+.kydo-balances--sm {
+  height: 28px;
+  border-radius: 6px;
+  font-size: 13px;
+}
+.kydo-balances__val,
+.kydo-wallet-btn__addr {
+  font-family: var(--kydo-mono);
+}
+/* amber fills carry dark ink text (design reference: the Confirm button) */
+.kydo-wallet-btn--primary {
+  color: rgb(var(--t-ink));
+}
+.kydo-stepper {
+  padding: 4px 0;
+}
+.kydo-step {
+  min-width: 84px;
+}
+.kydo-empty {
+  padding: 20px 16px;
+}
+.kydo-toast {
+  border-radius: 8px;
+}
+
+/* Chart canvases must never trigger horizontal page scroll. */
+.tv-lightweight-charts {
+  max-width: 100%;
+}
+
+/* ---- order-book glimmer (bulk-style): a side-tinted gradient sweeps the row,
+   holds for the first half of the animation and dissolves to transparent. ---- */
+@keyframes glimmer-bid {
+  0%, 50% { background: linear-gradient(to right, rgba(0, 208, 91, 0.22), rgba(0, 208, 91, 0.03)); }
+  100% { background: linear-gradient(90deg, transparent, transparent); }
+}
+@keyframes glimmer-ask {
+  0%, 50% { background: linear-gradient(to right, rgba(255, 95, 46, 0.22), rgba(255, 95, 46, 0.03)); }
+  100% { background: linear-gradient(90deg, transparent, transparent); }
+}
+@keyframes ob-row-in {
+  0% { opacity: 0; transform: translateY(-2px); }
+  100% { opacity: 1; transform: translateY(0); }
+}
+.ob-row { transition: color 0.15s cubic-bezier(0, 0, 0.2, 1), background-color 0.15s cubic-bezier(0, 0, 0.2, 1); animation: ob-row-in 0.15s ease-out; }
+.ob-glimmer-bid { animation: glimmer-bid 0.6s ease-out, ob-row-in 0.15s ease-out; }
+.ob-glimmer-ask { animation: glimmer-ask 0.6s ease-out, ob-row-in 0.15s ease-out; }
+/* eased direction-colour changes for headline / mid prices */
+.price-eased { transition: color 0.15s cubic-bezier(0, 0, 0.2, 1); }
+
+/* ---- boot splash ---- */
+.boot-ring {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  border: 2px solid rgb(var(--t-line2));
+  border-top-color: rgb(var(--t-amber));
+  animation: boot-spin 0.8s linear infinite;
+}
+@keyframes boot-spin {
+  to { transform: rotate(1turn); }
+}

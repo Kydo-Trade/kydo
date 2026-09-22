@@ -1,0 +1,41 @@
+# Build context hygiene. Everything here is rebuilt inside the image, and the
+# secrets must never enter it.
+.git
+.github
+node_modules
+**/node_modules
+dist
+**/dist
+.next
+**/.next
+target
+.anchor
+test-ledger
+pgdata
+
+# Secrets and local state. The ** forms matter: dev-stack.sh writes
+# apps/*/.env.local, and Next gives .env.local precedence over the .env the
+# Dockerfile bakes. A bare `.env.*` only matches the context root, so those
+# would slip in through `COPY . .` and pin the apps to localhost.
+.env
+.env.*
+**/.env
+**/.env.*
+!.env.example
+**/*keypair*.json
+.devstack
+.devnet.json
+.localnet.json
+.smoke
+
+# Not needed at build or run time
+docs
+requirement
+tests
+*.log
+*.tsbuildinfo
+coverage
+.DS_Store
+Dockerfile
+.dockerignore
+docker-compose.yml

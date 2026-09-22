@@ -1,0 +1,47 @@
+{
+  "name": "kydo",
+  "version": "0.2.0",
+  "private": true,
+  "description": "On-chain funded trading platform on Solana. MVP (devnet)",
+  "scripts": {
+    "build": "pnpm -r --filter './packages/**' --filter './services/**' --filter './apps/**' build",
+    "build:program": "anchor build --no-idl -- --tools-version v1.51 && anchor idl build -o target/idl/vault.json -t target/types/vault.ts && cp target/idl/vault.json packages/sdk/src/idl/vault.json && cp target/types/vault.ts packages/sdk/src/idl/vault.ts",
+    "test:program": "anchor test --skip-build",
+    "test:services": "pnpm -r --filter './packages/**' --filter './services/**' test",
+    "typecheck": "pnpm -r typecheck",
+    "db:up": "docker compose up -d postgres",
+    "db:down": "docker compose down",
+    "dev:indexer": "pnpm --filter @kydo/indexer dev",
+    "dev:keeper": "pnpm --filter @kydo/keeper dev",
+    "dev:trial": "pnpm --filter @kydo/trial-engine dev",
+    "dev:terminal": "pnpm --filter @kydo/terminal dev",
+    "dev:landing": "pnpm --filter @kydo/landing dev",
+    "devnet:bootstrap": "ts-node --transpile-only scripts/bootstrap-devnet.ts",
+    "params:apply": "ts-node --transpile-only scripts/bootstrap-devnet.ts apply-params",
+    "demo:pool": "ts-node --transpile-only scripts/demo-pool.ts"
+  },
+  "devDependencies": {
+    "@coral-xyz/anchor": "^0.31.1",
+    "@solana/spl-token": "^0.4.9",
+    "@solana/web3.js": "^1.98.0",
+    "@types/bn.js": "^5.1.6",
+    "@types/chai": "^4.3.17",
+    "@types/mocha": "^10.0.9",
+    "@types/node": "^18.19.0",
+    "chai": "^4.5.0",
+    "mocha": "^10.8.2",
+    "ts-mocha": "^10.0.0",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.6.3"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "packageManager": "pnpm@8.15.9",
+  "pnpm": {
+    "overrides": {
+      "rpc-websockets>uuid": "^9.0.1",
+      "@solana/web3.js": "1.98.4"
+    }
+  }
+}

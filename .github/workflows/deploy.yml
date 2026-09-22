@@ -1,0 +1,235 @@
+name: Deploy
+
+# Ship the committed tree to the staging host and rebuild the stack there.
+# No registry: the host builds its own images from source, so nothing is
+# published to GHCR or Docker Hub.
+#
+# A deploy is a full rebuild, not a restart. The app images bake NEXT_PUBLIC_*
+# and USDC_MINT from .env.example at `next build` time.
+on:
+  push:
+    branches: [main]
+    # Docs-only commits change no image.
+    paths-ignore:
+      - "**/*.md"
+      - "docs/**"
+    tags: ["v*"]
+  workflow_dispatch:
+
+# Never cancel a half-finished deploy.
+concurrency:
+  group: deploy-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    name: build on host · restart stack
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Configure SSH
+        env:
+          SSH_HOST: ${{ secrets.SSH_HOST }}
+          SSH_USER: ${{ secrets.SSH_USER }}
+          SSH_PORT: ${{ vars.SSH_PORT || '22' }}
+          SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
+          # Optional. Set it to pin the host key instead of trusting whatever
+          # answers at deploy time (see the keyscan note below).
+          SSH_KNOWN_HOSTS: ${{ secrets.SSH_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+          for v in SSH_HOST SSH_USER SSH_PRIVATE_KEY; do
+            if [ -z "${!v}" ]; then
+              echo "::error::$v is not set. Add it under Settings → Secrets and variables → Actions"
+              exit 1
+            fi
+          done
+          mkdir -p ~/.ssh
+          printf '%s\n' "$SSH_PRIVATE_KEY" > ~/.ssh/id_rsa
+          chmod 600 ~/.ssh/id_rsa
+
+          # SSH will not connect to an unverified host, so known_hosts has to
+          # come from somewhere. With SSH_KNOWN_HOSTS set the key is pinned;
+          # without it we take whatever the host offers on each run, which
+          # trusts DNS and the network path at that moment.
+          if [ -n "${SSH_KNOWN_HOSTS:-}" ]; then
+            printf '%s\n' "$SSH_KNOWN_HOSTS" > ~/.ssh/known_hosts
+            echo "host key pinned from SSH_KNOWN_HOSTS"
+          else
+            echo "SSH_KNOWN_HOSTS not set. Scanning $SSH_HOST:$SSH_PORT"
+            if ! ssh-keyscan -T 10 -p "$SSH_PORT" "$SSH_HOST" > ~/.ssh/known_hosts 2>/dev/null \
+               || [ ! -s ~/.ssh/known_hosts ]; then
+              echo "::error::ssh-keyscan got nothing from $SSH_HOST:$SSH_PORT. Wrong host, wrong port, or the box does not accept connections from GitHub's runners"
+              exit 1
+            fi
+          fi
+          chmod 644 ~/.ssh/known_hosts
+          # Host keys are public; printing fingerprints leaks nothing and makes
+          # a verification failure diagnosable from the log.
+          ssh-keygen -lf ~/.ssh/known_hosts
+
+
+      # git archive ships exactly the committed tree. No .git, no node_modules,
+      # no local junk, and needs no repo credentials on the host. It extracts
+      # over the top rather than replacing the directory, so ./pgdata and the
+      # mounted keypairs are left alone.
+      - name: Ship source
+        env:
+          SSH_HOST: ${{ secrets.SSH_HOST }}
+          SSH_USER: ${{ secrets.SSH_USER }}
+          SSH_PORT: ${{ vars.SSH_PORT || '22' }}
+          DEPLOY_PATH: ${{ vars.DEPLOY_PATH || '/srv/kydo' }}
+        run: |
+          set -euo pipefail
+          ssh -p "$SSH_PORT" -i ~/.ssh/id_rsa "$SSH_USER@$SSH_HOST" "mkdir -p '$DEPLOY_PATH'"
+          git archive --format=tar HEAD \
+            | ssh -p "$SSH_PORT" -i ~/.ssh/id_rsa "$SSH_USER@$SSH_HOST" \
+                "tar -x -C '$DEPLOY_PATH'"
+
+      # The TradingView charting library is licensed per-site and deliberately
+      # not in the repo (.gitignore keeps everything but the kydo-*.css skins),
+      # so `git archive` above never ships it. It has to be placed on the host
+      # ONCE. Ship source extracts over the top, so the copy survives every
+      # later deploy and `COPY . .` bakes it into the terminal image:
+      #   rsync -av apps/terminal/public/charting_library/ \
+      #     <user>@<host>:/srv/kydo/apps/terminal/public/charting_library/
+      # Without it the terminal silently falls back to the built-in chart.
+      - name: Check TradingView library is on the host
+        env:
+          SSH_HOST: ${{ secrets.SSH_HOST }}
+          SSH_USER: ${{ secrets.SSH_USER }}
+          SSH_PORT: ${{ vars.SSH_PORT || '22' }}
+          DEPLOY_PATH: ${{ vars.DEPLOY_PATH || '/srv/kydo' }}
+        run: |
+          set -euo pipefail
+          lib="$DEPLOY_PATH/apps/terminal/public/charting_library"
+          if ssh -p "$SSH_PORT" -i ~/.ssh/id_rsa "$SSH_USER@$SSH_HOST" \
+               "[ -f '$lib/charting_library.min.js' ] || [ -f '$lib/charting_library.standalone.js' ]"; then
+            echo "charting_library present. Terminal builds with the TradingView chart"
+          else
+            echo "::warning::$lib is missing on the host. The terminal image will FALL BACK to the built-in chart. Copy the library once (it survives deploys): rsync -av apps/terminal/public/charting_library/ $SSH_USER@<host>:$lib/"
+          fi
+
+      # The signing keys are deliberately not in the repo or the image. They can
+      # be provided as GitHub secrets (the JSON secret-key array. The contents
+      # of a solana-keygen file); when set, this step writes any that are
+      # missing on the host. Keys already present are left untouched, so a key
+      # placed by hand always wins. An empty *directory* at the path (what
+      # Docker leaves behind when a bind source was missing) is replaced.
+      - name: Provision signing keys from secrets
+        env:
+          SSH_HOST: ${{ secrets.SSH_HOST }}
+          SSH_USER: ${{ secrets.SSH_USER }}
+          SSH_PORT: ${{ vars.SSH_PORT || '22' }}
+          KEYS_DIR: ${{ vars.KYDO_KEYS_DIR || '/etc/kydo/keys' }}
+          KEEPER_KEYPAIR_JSON: ${{ secrets.KEEPER_KEYPAIR_JSON }}
+          TRIAL_ATTESTOR_KEYPAIR_JSON: ${{ secrets.TRIAL_ATTESTOR_KEYPAIR_JSON }}
+        run: |
+          set -euo pipefail
+          # The remote script travels base64-encoded inside the command line so the
+          # key itself can be the ONLY thing on stdin (a heredoc would replace it).
+          remote_script='
+            set -eu
+            f="$KEYS_DIR/$NAME.json"
+            SUDO=""; [ "$(id -u)" = 0 ] || { sudo -n true 2>/dev/null && SUDO="sudo -n"; }
+            if [ -f "$f" ]; then echo "$f already present, leaving it alone"; cat >/dev/null; exit 0; fi
+            if [ -d "$f" ]; then echo "$f is an empty directory left by a failed mount. Replacing"; $SUDO rm -rf "$f"; fi
+            $SUDO mkdir -p "$KEYS_DIR" || { echo "cannot create $KEYS_DIR as $(id -un) (passwordless sudo missing?)"; exit 2; }
+            tmp=$(mktemp); cat > "$tmp"
+            [ -s "$tmp" ] || { echo "received an empty key"; rm -f "$tmp"; exit 3; }
+            # containers run as node (uid 1000)
+            $SUDO install -m 600 -o 1000 -g 1000 "$tmp" "$f" 2>/dev/null \
+              || $SUDO install -m 644 "$tmp" "$f" \
+              || { echo "cannot write $f as $(id -un) (passwordless sudo missing?)"; rm -f "$tmp"; exit 4; }
+            rm -f "$tmp"
+            echo "wrote $f ($(wc -c <"$f") bytes)"
+          '
+          b64=$(printf '%s' "$remote_script" | base64 | tr -d '\n')
+          provision() { # name, secret-name, json
+            local name="$1" secret="$2" json="$3"
+            if [ -z "$json" ]; then
+              echo "::warning::repository secret $secret is not set. The workflow cannot place $KEYS_DIR/$name.json. Add it: Settings → Secrets and variables → Actions → New repository secret, name $secret, value = the JSON array inside the keypair file (cat ~/.config/solana/id.json), or place the file on the host by hand."
+              return 0
+            fi
+            case "$json" in "["*) ;; *) echo "::error::$secret must be the JSON array from the keypair file (it starts with '[')"; exit 1;; esac
+            printf '%s' "$json" | ssh -p "$SSH_PORT" -i ~/.ssh/id_rsa "$SSH_USER@$SSH_HOST" \
+              "NAME='$name' KEYS_DIR='$KEYS_DIR' sh -c \"\$(printf '%s' '$b64' | base64 -d)\""
+          }
+          provision keeper KEEPER_KEYPAIR_JSON "$KEEPER_KEYPAIR_JSON"
+          provision attestor TRIAL_ATTESTOR_KEYPAIR_JSON "$TRIAL_ATTESTOR_KEYPAIR_JSON"
+
+      # Docker turns a missing bind source into an empty directory, which the
+      # services only discover as `EISDIR` when they try to read the keypair.
+      # Catch it here, where the message can say what to do about it.
+      - name: Check signing keys are on the host
+        env:
+          SSH_HOST: ${{ secrets.SSH_HOST }}
+          SSH_USER: ${{ secrets.SSH_USER }}
+          SSH_PORT: ${{ vars.SSH_PORT || '22' }}
+          KEYS_DIR: ${{ vars.KYDO_KEYS_DIR || '/etc/kydo/keys' }}
+        run: |
+          set -euo pipefail
+          report=$(ssh -p "$SSH_PORT" -i ~/.ssh/id_rsa "$SSH_USER@$SSH_HOST" \
+            "for f in keeper.json attestor.json; do p='$KEYS_DIR'/\$f; if [ -f \"\$p\" ]; then :; elif [ -d \"\$p\" ]; then echo \"\$f (is a DIRECTORY. A failed Docker mount created it; rm -rf it)\"; else echo \"\$f (missing)\"; fi; done")
+          if [ -n "$report" ]; then
+            echo "::error::missing keypair(s) in $KEYS_DIR on the host: $report"
+            echo "The keeper signs locks/unwinds and the attestor signs finalize_trial;"
+            echo "both are deliberately not in the repo or the image. Either:"
+            echo "  - add repository secrets KEEPER_KEYPAIR_JSON / TRIAL_ATTESTOR_KEYPAIR_JSON"
+            echo "    (the JSON array inside the solana-keygen file) and re-run. The previous step writes them, or"
+            echo "  - place them by hand on $SSH_HOST:"
+            echo "      sudo mkdir -p $KEYS_DIR"
+            echo "      sudo cp <keeper keypair>.json   $KEYS_DIR/keeper.json"
+            echo "      sudo cp <attestor keypair>.json $KEYS_DIR/attestor.json"
+            echo "      sudo chown 1000:1000 $KEYS_DIR/*.json && sudo chmod 600 $KEYS_DIR/*.json   # containers run as uid 1000"
+            exit 1
+          fi
+          echo "both keypairs present in $KEYS_DIR"
+
+      - name: Rebuild and restart
+        env:
+          SSH_HOST: ${{ secrets.SSH_HOST }}
+          SSH_USER: ${{ secrets.SSH_USER }}
+          SSH_PORT: ${{ vars.SSH_PORT || '22' }}
+          DEPLOY_PATH: ${{ vars.DEPLOY_PATH || '/srv/kydo' }}
+        run: |
+          set -euo pipefail
+          ssh -p "$SSH_PORT" -i ~/.ssh/id_rsa "$SSH_USER@$SSH_HOST" bash -eu <<EOF
+            cd "$DEPLOY_PATH"
+            docker compose --profile stack build
+            if ! docker compose --profile stack up -d --remove-orphans; then
+              echo "--- postgres logs ---"
+              docker compose logs --tail 40 postgres || true
+              echo "--- indexer logs ---"
+              docker compose logs --tail 80 indexer || true
+              exit 1
+            fi
+            # Layers from previous deploys pile up fast with five images.
+            docker image prune -f
+            docker compose ps
+          EOF
+
+      - name: Smoke check
+        run: |
+          set -euo pipefail
+          for url in https://mtsol.stagingapp.co/ \
+                     https://mtsol.stagingapp.co/api/health \
+                     https://mtsol.stagingapp.co/trial-api/health; do
+            echo "GET $url"
+            # Capture first, trim after. Piping curl into `head -c` closes the
+            # pipe the moment head has its bytes, so on any response longer than
+            # the cut curl dies with 23 ("failure writing output to destination")
+            # and pipefail turns a perfectly healthy site into a failed deploy.
+            # The two /health endpoints are small enough to squeak under the
+            # limit; the landing page is not, so this failed on the first URL
+            # every time. --retry-all-errors then retried the *write* failure,
+            # which is why one page produced ten identical errors and eleven
+            # fetches. printf trims without a second process.
+            body=$(curl -fsS --retry 10 --retry-delay 6 --retry-all-errors "$url")
+            printf '%.300s\n' "$body"
+          done

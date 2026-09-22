@@ -1,0 +1,19 @@
+/* Kydo dark skin for the pre-v20 charting library (v1.12 ignores theme:"dark").
+   Token palette (globals.css --t-*): pane #161616, hover #202020, line #2c2c2c, muted #8d8d8d.
+   Selectors verified against the live iframe DOM (hashed classes matched by prefix). */
+body, .chart-page, .chart-container, .chart-container.active, .chart-container-border { background: #161616 !important; }
+.header-chart-panel, .header-chart-panel .group, .header-chart-panel .button,
+.chart-controls-bar, .chart-controls-bar-buttons, .tv-side-toolbar,
+[class^="drawingToolbar"], [class*=" drawingToolbar"],
+[class^="buttonWrap"], [class*=" buttonWrap"] { background: #161616 !important; border-color: #2c2c2c !important; }
+.header-chart-panel .button, .chart-controls-bar .button,
+[class^="button-"], [class*=" button-"], [class^="buttonIcon"], [class*=" buttonIcon"] { color: #8d8d8d !important; fill: #8d8d8d !important; }
+.header-chart-panel .button:hover, [class^="button-"]:hover { background: #202020 !important; }
+.pane-legend-line, .pane-legend-item-value, .pane-legend-title { color: #8d8d8d !important; }
+.chart-controls-clock, .chart-controls-tz { color: #8d8d8d !important; }
+/* bulk shows a plain text legend: no hide/eye/format buttons, 14px title */
+.pane-legend-minbtn, .pane-legend-icon-container { display: none !important; }
+.pane-legend-line.main { font-size: 14px !important; }
+/* bottom bar: keep clock · % · log · auto, drop the date-range jumper like bulk */
+.chart-controls-bar .quick-dates, .chart-controls-bar .date-range-wrapper, .chart-controls-bar-buttons .button.first-in-group,
+.chart-controls-bar .space-single, .chart-controls-bar .go-to-date { display: none !important; }

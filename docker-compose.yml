@@ -1,0 +1,252 @@
+# Postgres alone (the previous behaviour, `pnpm db:up`):
+#   docker compose up -d postgres
+#
+# The whole stack. Indexer, keeper, trial engine, both apps (section 3.4):
+#   docker compose --profile stack up -d --build
+#
+# The staging host runs exactly this, built from source. See
+# .github/workflows/deploy.yml. No registry is involved.
+#
+# No .env is needed on the host and nothing is passed in from here: each image
+# bakes its own /app/.env from .env.example at build time (see the `envfile`
+# stage in the Dockerfile). Change a public URL or set USDC_MINT with a build
+# arg and rebuild:
+#   docker compose --profile stack build --build-arg USDC_MINT=<mint>
+#
+# Published behind the existing TLS proxy:
+#   mtsol.stagingapp.co          → landing       :3001
+#   terminal.mtsol.stagingapp.co → terminal      :3000
+#   api.mtsol.stagingapp.co      → indexer       :4000   (proxy /ws with upgrade headers)
+#   trial.mtsol.stagingapp.co    → trial-engine  :4100
+#
+# Start order is enforced with healthchecks: postgres → indexer → trial engine.
+# The keeper is independent but must be up before anyone trades (fresh oracles).
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: kydo_postgres
+    environment:
+      POSTGRES_USER: kydo
+      POSTGRES_PASSWORD: kydo
+      POSTGRES_DB: kydo
+    ports:
+      - "5432:5432"
+    volumes:
+      # A named volume, not ./pgdata. The bind mount sat inside DEPLOY_PATH,
+      # which `git archive` extracts over on every deploy, and once it holds a
+      # database the image skips initialisation, so POSTGRES_USER/PASSWORD are
+      # ignored and stale credentials win silently. Docker owns this one, and
+      # `docker compose down -v` resets it cleanly.
+      - pgdata:/var/lib/postgresql/data
+      - ./services/indexer/sql:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      # Authenticates over TCP, exactly as the indexer does. `pg_isready`
+      # only asks whether the server accepts connections, so it reports
+      # healthy even when the password in ./pgdata does not match the one
+      # declared above. POSTGRES_PASSWORD is applied only when the data
+      # directory is first initialised, and ignored on every later start.
+      test: [ "CMD-SHELL", "PGPASSWORD=kydo psql -h 127.0.0.1 -U kydo -d kydo -c 'select 1' > /dev/null" ]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 30s
+
+  indexer:
+    profiles: [ stack ]
+    container_name: kydo_indexer
+    build:
+      context: .
+      target: indexer
+    # Secrets come from a .env beside this file on the host, never from the
+    # image: .env.example is tracked AND copied into /app/.env at build time, so
+    # anything real written there is published in git history (and, for
+    # NEXT_PUBLIC_*, in the client bundle), which is exactly how the first
+    # Helius key leaked. `required: false` is the point: when the file is absent
+    # this sets NOTHING, so the baked defaults still apply. An `environment:`
+    # default cannot do that. `${VAR:-default}` always sets the variable, and
+    # dotenv refuses to overwrite an already-set one, so it silently beats the
+    # image's own config. Put SOLANA_RPC_URL / SOLANA_WS_URL / PYTH_API_KEY there.
+    env_file:
+      - path: .env
+        required: false
+    ports:
+      - "4000:4000"
+    environment:
+      # Deliberately NOT passing SOLANA_RPC_URL / SOLANA_WS_URL / PYTH_API_KEY
+      # through from the host here. `${VAR:-default}` always sets the variable,
+      # and dotenv refuses to overwrite an already-set process env var, so a
+      # default silently BEATS the value baked into /app/.env from .env.example.
+      # A "safe" public-RPC fallback did exactly that: it downgraded a correctly
+      # configured deployment to the rate-limited public endpoint, and the
+      # keeper could not push. These values come from .env.example at build
+      # time. To override them per-host without touching the image, add
+      #   env_file: [{ path: .env, required: false }]
+      # to this service (compose >= 2.24) rather than an `environment:` default.
+      # Dev faucet ("Get test USDC" in both apps). Only meaningful on devnet.
+      # The indexer refuses to run it against mainnet regardless of this flag.
+      # The mint authority of the devnet test-USDC mint is the admin key, which
+      # is also the keeper key here, so the same file is mounted read-only.
+      FAUCET_ENABLED: ${FAUCET_ENABLED:-true}
+      FAUCET_KEYPAIR: /run/keys/keeper.json
+      FAUCET_MAX_USD: ${FAUCET_MAX_USD:-10000}
+      # Public devnet RPC throttles per IP ("429 Connection rate limits
+      # exceeded") and every container on this host shares that IP. The image's
+      # copied .env carries laptop cadences, so slow them down here (same values
+      # scripts/dev-stack.sh uses on devnet). With a dedicated RPC, lower them.
+      # SNAPSHOT_INTERVAL_MS / BACKFILL_MAX_SIGS come from .env.example (10000 /
+      # 1000). Defaults here would override them. See the PYTH_MODE note in the
+      # keeper service for why that is not what it looks like.
+    volumes:
+      - ${KYDO_KEYS_DIR:-/etc/kydo/keys}/keeper.json:/run/keys/keeper.json:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      # Node 22 has global fetch, so the slim image needs no curl.
+      test: [ "CMD", "node", "-e", "fetch('http://127.0.0.1:4000/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))" ]
+      interval: 15s
+      timeout: 10s
+      retries: 10
+      # services/indexer/src/index.ts binds the port LAST: store.init(), then
+      # refreshStatic() and a full pool snapshot over RPC run first. On the
+      # public devnet endpoint (429s per IP) that cold start takes minutes,
+      # and nothing answers /health until it finishes.
+      start_period: 240s
+    restart: unless-stopped
+
+  keeper:
+    profiles: [ stack ]
+    container_name: kydo_keeper
+    build:
+      context: .
+      target: keeper
+    # Secrets come from a .env beside this file on the host, never from the
+    # image: .env.example is tracked AND copied into /app/.env at build time, so
+    # anything real written there is published in git history (and, for
+    # NEXT_PUBLIC_*, in the client bundle), which is exactly how the first
+    # Helius key leaked. `required: false` is the point: when the file is absent
+    # this sets NOTHING, so the baked defaults still apply. An `environment:`
+    # default cannot do that. `${VAR:-default}` always sets the variable, and
+    # dotenv refuses to overwrite an already-set one, so it silently beats the
+    # image's own config. Put SOLANA_RPC_URL / SOLANA_WS_URL / PYTH_API_KEY there.
+    env_file:
+      - path: .env
+        required: false
+    volumes:
+      # Mounted read-only, never baked into the image. This key signs
+      # lock/unwind/price transactions and holds SOL. Override
+      # KEEPER_KEY_FILE to point somewhere other than the default wallet.
+      # Docker creates an empty DIRECTORY when a bind source is missing, so a
+      # key that is not on the host shows up as `EISDIR ... read` at startup
+      # rather than a mount error. The deploy workflow preflights both paths.
+      # Default is outside DEPLOY_PATH on purpose: `git archive` extracts over
+      # that directory on every deploy.
+      - ${KYDO_KEYS_DIR:-/etc/kydo/keys}/keeper.json:/run/keys/keeper.json:ro
+      # Deliberately NOT passing SOLANA_RPC_URL / SOLANA_WS_URL / PYTH_API_KEY
+      # through from the host here. `${VAR:-default}` always sets the variable,
+      # and dotenv refuses to overwrite an already-set process env var, so a
+      # default silently BEATS the value baked into /app/.env from .env.example.
+      # A "safe" public-RPC fallback did exactly that: it downgraded a correctly
+      # configured deployment to the rate-limited public endpoint, and the
+      # keeper could not push. These values come from .env.example at build
+      # time. To override them per-host without touching the image, add
+      #   env_file: [{ path: .env, required: false }]
+      # to this service (compose >= 2.24) rather than an `environment:` default.
+      # The "150 slots ≈ 60 s, so 20 s pushes are fine" this used to say has been
+      # wrong since oracleMaxAgeSlots was cut to 25 (10 s) for the liquidation
+      # model: a 20 s push cadence guarantees every feed is stale for half its
+      # life and evaluate_risk reverts on OracleStale. The window is what the
+      # first-loss cushion is sized against, so the cadence has to fit inside
+      # it, not the other way round.
+      #   mock mode: one transaction per push, 5 s is comfortable.
+      #   pull mode: a Pyth round is ~3 s, so 2 s (see scripts/dev-stack.sh).
+      # NOT set here any more, for the same reason as the RPC url below:
+      # `${VAR:-default}` always sets the variable and dotenv will not overwrite
+      # it, so a default here silently beats .env.example. PYTH_MODE defaulted
+      # to `mock` and overrode the baked `pull`, so setupPythPusher never ran and
+      # nothing ever posted a PriceUpdateV2. Every pool sat on OracleStale.
+      # PRICE_PUSH_MS did the same, forcing 5 s over the measured 2 s.
+      # mock (default) feeds the program-owned oracles and requires this
+      # container's key to BE the platform's price_authority. pull posts real
+      # Pyth PriceUpdateV2 accounts, whose addresses are derived from this
+      # container's key. The registry must have been bootstrapped against that
+      # same key (`pnpm devnet:bootstrap --pyth` with KEEPER_KEYPAIR set to it)
+      # or every market points at an account this keeper never writes.
+      # Set it in .env.example (baked), not here.
+    depends_on:
+      indexer:
+        condition: service_healthy
+    restart: unless-stopped
+
+  trial-engine:
+    profiles: [ stack ]
+    container_name: kydo_trial_engine
+    build:
+      context: .
+      target: trial-engine
+    # Secrets come from a .env beside this file on the host, never from the
+    # image: .env.example is tracked AND copied into /app/.env at build time, so
+    # anything real written there is published in git history (and, for
+    # NEXT_PUBLIC_*, in the client bundle), which is exactly how the first
+    # Helius key leaked. `required: false` is the point: when the file is absent
+    # this sets NOTHING, so the baked defaults still apply. An `environment:`
+    # default cannot do that. `${VAR:-default}` always sets the variable, and
+    # dotenv refuses to overwrite an already-set one, so it silently beats the
+    # image's own config. Put SOLANA_RPC_URL / SOLANA_WS_URL / PYTH_API_KEY there.
+    env_file:
+      - path: .env
+        required: false
+    volumes:
+      # The key `finalize_trial` checks against PlatformConfig.trial_attestor.
+      - ${KYDO_KEYS_DIR:-/etc/kydo/keys}/attestor.json:/run/keys/attestor.json:ro
+    ports:
+      - "4100:4100"
+    depends_on:
+      indexer:
+        condition: service_healthy
+    healthcheck:
+      test: [ "CMD", "node", "-e", "fetch('http://127.0.0.1:4100/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))" ]
+      interval: 15s
+      timeout: 10s
+      retries: 10
+      start_period: 120s
+    restart: unless-stopped
+
+  terminal:
+    profiles: [ stack ]
+    container_name: kydo_terminal
+    build:
+      context: .
+      target: terminal
+    # RPC_URL is read at runtime by app/layout.tsx, not inlined by `next build`,
+    # so a domain-restricted browser key can be set here without a rebuild and
+    # without committing it.
+    #
+    # env_file, NOT `environment: RPC_URL: ${RPC_URL:-...}`. A `${VAR:-default}`
+    # ALWAYS sets the variable and so silently beats a configured value. That is
+    # the downgrade documented on the indexer service above. With env_file there
+    # is no default to win, and an absent .env simply leaves the public endpoint,
+    # which the admin panel's "Wallet RPC" row makes visible.
+    env_file:
+      - path: .env
+        required: false
+    ports:
+      - "3000:3000"
+    depends_on:
+      indexer:
+        condition: service_healthy
+    restart: unless-stopped
+
+  landing:
+    profiles: [ stack ]
+    container_name: kydo_landing
+    build:
+      context: .
+      target: landing
+    ports:
+      - "3001:3001"
+    # No hard dependency: the landing renders with "—" stats when the API is down.
+    restart: unless-stopped
+
+volumes:
+  pgdata:

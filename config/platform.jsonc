@@ -1,0 +1,115 @@
+// Kydo platform parameters. PRODUCTION-SHAPED values from the spec (section 4–section 5).
+// Format: JSONC (JSON + comments). Amounts are USD; durations are seconds unless the key
+// says Days / Slots / Bps (basis points, 1% = 100 bps).
+// Apply to a running platform:   pnpm params:apply config/platform.jsonc
+// Use at first init:              PLATFORM_CONFIG=config/platform.jsonc pnpm devnet:bootstrap
+{
+  // ---- money in / out (section 4.1, section 4.4, section 4.10) ----
+  // Section 4.1 trader entry fee per trial attempt. Held in treasury-vault custody,
+  // never refunded: at funding it becomes the pool's first-loss seed and the
+  // remainder is platform revenue + bounty reserve. Must be >= 80% x maxDrawdown
+  // x Tier-1 cap (section 5.2 invariant) AND >= minFirstLossBps x Tier-1 cap (below).
+  "entryFeeUsd": 800,
+  // Program-owned MockOracle accounts. When true, `price_authority` can write
+  // ANY price and pools mark against it. That key can mint NAV or force
+  // liquidations at will. It is an init-time flag with no instruction to flip
+  // it, so a mainnet init with false locks it out permanently. Only true for
+  // localnet/devnet, where PYTH_MODE=pull is not funded.
+  "allowMockOracle": true,
+
+  // Trader first-loss required to fund a pool, bps of the tier cap. Must cover
+  // the drawdown trigger (10%) PLUS the liquidation buffer at maxLeverageBps.
+  // Buffer = leverage x (adverse move + slippage) over the mark window, and the
+  // adverse move scales with sqrt(time):
+  //   window = keeper mark interval (5s) + oracleMaxAgeSlots + tx landing (3s)
+  //   18s window -> 0.588%/x -> 5x = 2.94% -> minFirstLossBps 1294  (original)
+  //   68s window -> 1.143%/x -> 5x = 5.71% -> minFirstLossBps 1571  (current)
+  // Widened from 25 to 150 slots because a Pyth pull round takes ~17.6s on a
+  // rate-limited RPC, so feeds could never satisfy a 10s window and
+  // evaluate_risk reverted on OracleStale forever. The cushion moved with it.
+  // Investors are made whole by the trader's own deposit; the fee's remainder is
+  // bounty reserve + revenue -- at 1571 that remainder is only $14.50 of the
+  // $800 fee, and beyond ~1600 the fee cannot cover the cushion at all. Raising
+  // leverage or loosening the mark cadence further needs a higher entryFeeUsd.
+  //
+  // THIS IS A HEURISTIC, NOT A BOUND. Everything above is a sqrt(t) diffusion
+  // model with NO JUMP TERM, evaluated at one window length, and it assumes a
+  // keeper that is alive and landing transactions. It says: under ordinary
+  // price behaviour, a 68s window at 5x is usually covered. It does NOT bound
+  // investor loss, and three things break it outright:
+  //   * a gap -- a listing, a depeg, an exchange halt, a liquidation cascade.
+  //     Jumps do not scale with sqrt(t) and this number does not model them.
+  //   * a keeper that is down or priced out of the block. The window is only
+  //     68s because someone is marking every 5s; nothing enforces that.
+  //   * correlation. The buffer is sized per pool. Every funded pool may hold
+  //     the same cluster at once (maxSingleBps 12500, maxClusterBps 25000), and
+  //     one adverse move can exhaust every cushion simultaneously.
+  // Whatever is said to investors about the first-loss cushion must say this
+  // too: it absorbs the ordinary case first, ahead of their capital. It is not
+  // a guarantee, and no confidence level has been published for it.
+  "minFirstLossBps": 1571,       // $785.50 of the $800 fee at the $5k Tier-1 cap
+  "bountyPerPoolUsd": 0,         // VESTIGIAL: the program reads this nowhere. The fee split at funding
+                                 // (minFirstLossBps to the pool, the rest halved between bounty reserve
+                                 // and revenue) replaced it. Kept only so the IDL arg shape is unchanged.
+  "keeperBountyUsd": 5,          // FLAT liquidation bounty, paid per action (lock + unwind = 2). Charged to the trader's first-loss seed, so the remainder that reaches investors at reap is larger the smaller this is, but nothing makes a big pool more attractive to liquidate than a small one now, so it must be worth a transaction on a Tier-3 unwind (5 closes + oracles + priority fees), not a Tier-1 one.
+  "activationFloorUsd": 1000,    // section 4.4 pool goes Live once NAV ≥ this
+  "minDepositUsd": 50,           // section 4.4 minimum investor deposit
+
+  // ---- capital tiers (section 4.3) ----
+  "tiers": {
+    "capsUsd": [5000, 15000, 30000],   // deposit cap at Tier 1 / 2 / 3; promotion raises the cap on the existing pool
+    "vestDays": [14, 30, 30],          // section 5.2 escrow vesting per tier, in platform days (see daySecs); stamped on the bucket at accrual
+    "promotionDays": 30                // live trading days required at a tier before promote_tier, plus positive NAV/share vs tier start and no lock
+  },
+
+  // ---- CommonPool crowdsourced funding (Vault Ledger section 1) ----
+  "commonPool": {
+    "reserveBps": 1000,          // idle reserve floor: 10% of the idle balance is never deployed to traders
+    "depositEnabled": true       // testnet gate (section 7): set false wherever real money could arrive before redemption ships
+  },
+
+  // ---- the platform clock ----
+  "daySecs": 86400,              // length of ONE platform "day" in seconds. Drives trial days, live-trading days (promotion) and vesting. 86400 = real UTC days.
+
+  // ---- live risk limits (section 5.3), platform-wide, traders cannot change them ----
+  "risk": {
+    "maxLeverageBps": 50000,    // max gross notional / NAV = 5x. With the caps below this is now the BINDING constraint, which it was not before.
+    "maxPositions": 5,           // max concurrent open positions
+    // Concentration caps, sized so GROSS leverage is what binds.
+    //
+    // At 40% / 60% the reachable ceiling was 1.60x, not the 5x this config
+    // advertises: five markets across three clusters cannot stack past
+    // Majors 60% + L1 60% + Memes 40%. To reach 5x at all, a single market has
+    // to be allowed past 100% of NAV, so these are 125% / 250% -- enough that
+    // gross binds with slack rather than requiring one exact five-market split.
+    //
+    // The liquidation buffer in minFirstLossBps is derived from maxLeverageBps,
+    // not from the reachable figure, so it already covered 5x and does not move.
+    // What DOES change is concentration: one market may now be 125% of NAV
+    // instead of 40%, and the buffer formula models gross exposure, not a gap in
+    // a single asset. That is the accepted trade, not an oversight.
+    "maxSingleBps": 12500,        // one market <= 125% of NAV (guard 12)
+    "maxClusterBps": 25000,       // one correlated cluster (majors / L1 / memes) <= 250% of NAV (guard 13)
+    "dailyLossBps": 400,         // daily loss cap = 4% of day-start NAV → breach locks the pool
+    "maxDrawdownBps": 1000,      // max drawdown = 10% from peak NAV → breach locks the pool
+    "minHoldSecs": 60,           // minimum holding time before a position can be closed (anti wash-trading)
+    "maxTradesPerDay": 100,      // anti-spam / RPC cost control
+    "oracleMaxAgeSlots": 150,    // 60s. Sized so a ~17.6s Pyth pull round on a rate-limited RPC still lands inside the window (worst feed age ~ 2 rounds). The liquidation buffer in minFirstLossBps above is derived from this - do not raise one without the other.
+    "oracleMaxConfBps": 50,      // guard step 5: oracle confidence / price must be ≤ 50 bps
+    "limitBandBps": 200,         // guard step 14: limit orders must be within ±200 bps of oracle
+    "redemptionLockupSecs": 86400, // section 4.7 investors can request redemption 24 h after their last deposit
+    "cooldownSecs": 604800       // section 4.1 7-day cooldown before re-applying after a failed trial
+  },
+
+  // ---- trial pass criteria (section 5.4), evaluated on-chain in finalize_trial ----
+  "trial": {
+    "startingBalanceUsd": 50000, // section 4.2 virtual starting balance of the simulated account
+    "profitTargetBps": 800,      // must finish ≥ +8%
+    "maxDrawdownBps": 1000,      // trial fails if drawdown ever exceeds 10% (same rule as live)
+    "dailyLossBps": 400,         // trial fails if any day loses more than 4% (same rule as live)
+    "minActiveDays": 15,         // days with at least one trade. Blocks "one trade on day 3, wait 27 days"
+    "minTrades": 20,             // sample-size floor (each open or close = 1 trade)
+    "maxDayProfitShareBps": 4000, // consistency: no single day may be > 40% of total profit
+    "commitGraceDays": 1         // how many extra days a day's merkle root may be committed late before the trial is invalidated
+  }
+}

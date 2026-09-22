@@ -1,0 +1,72 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Dark-only, like the product (spec section 5.1). Ground painted explicitly. */
+html {
+  color-scheme: dark;
+}
+/* in-page anchors (Traders / Investors) glide instead of jumping */
+@media (prefers-reduced-motion: no-preference) {
+  html {
+    scroll-behavior: smooth;
+  }
+}
+body {
+  @apply bg-bg text-fg font-sans antialiased;
+}
+
+@layer components {
+  /* every figure renders in mono with tabular digits, as in the terminal */
+  .num {
+    @apply font-mono tabular-nums tracking-[-0.01em];
+  }
+  .btn {
+    @apply inline-flex items-center justify-center gap-1 h-10 px-5 rounded text-sm font-semibold whitespace-nowrap select-none
+      border border-line2 bg-transparent text-fg transition-colors
+      hover:border-amber hover:text-amber-hi;
+  }
+  .btn-primary {
+    @apply bg-amber border-amber text-ink hover:bg-amber-hi hover:border-amber-hi hover:text-ink;
+  }
+  .eyebrow {
+    @apply font-mono text-xxs font-medium uppercase tracking-wider text-muted;
+  }
+}
+
+:focus-visible {
+  outline: 2px solid theme("colors.amber");
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+/* hero chart-grid texture (spec section 5.3: hero only) */
+.landing-grid {
+  background-image: linear-gradient(rgb(35 43 54 / 0.55) 1px, transparent 1px),
+    linear-gradient(90deg, rgb(35 43 54 / 0.55) 1px, transparent 1px);
+  background-size: 48px 48px;
+}
+
+/* reveal-on-scroll. Inert under prefers-reduced-motion (spec section 5.4) */
+@media (prefers-reduced-motion: no-preference) {
+  .landing-rev {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  .landing-rev.in {
+    opacity: 1;
+    transform: none;
+    transition:
+      opacity 0.5s cubic-bezier(0.22, 0.7, 0.3, 1),
+      transform 0.5s cubic-bezier(0.22, 0.7, 0.3, 1);
+    transition-delay: var(--d, 0ms);
+  }
+  .landing-rule {
+    transform: scaleX(0);
+    transform-origin: left center;
+  }
+  .landing-rev.in .landing-rule {
+    transform: scaleX(1);
+    transition: transform 0.7s cubic-bezier(0.22, 0.7, 0.3, 1) 0.2s;
+  }
+}

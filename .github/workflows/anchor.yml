@@ -1,0 +1,147 @@
+name: Anchor
+
+# The SBF build plus the localnet integration suite (~5 min of tests on top of
+# a large toolchain install), so it only runs when the program, its tests or
+# the toolchain pins actually change.
+on:
+  push:
+    branches: [main]
+    paths:
+      - "programs/**"
+      - "tests/**"
+      - "Anchor.toml"
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - "packages/sdk/src/idl/**"
+      - ".github/workflows/anchor.yml"
+  pull_request:
+    paths:
+      - "programs/**"
+      - "tests/**"
+      - "Anchor.toml"
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - "packages/sdk/src/idl/**"
+      - ".github/workflows/anchor.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: anchor-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  SOLANA_VERSION: "v2.1.21"
+  ANCHOR_VERSION: "0.31.1"
+  # The SBF build needs platform-tools v1.51 (see README "Toolchain").
+  PLATFORM_TOOLS_VERSION: "v1.51"
+  NODE_VERSION: "22"
+
+jobs:
+  localnet:
+    name: build program · verify IDL · localnet tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 75
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+
+      # Agave CLI, avm/anchor binaries and the downloaded platform-tools
+      # (~1 GB in total). The install is far slower than the restore.
+      - name: Cache Solana + Anchor toolchain
+        id: toolchain-cache
+        uses: actions/cache@v6
+        with:
+          path: |
+            ~/.local/share/solana/install
+            ~/.avm
+            ~/.cargo/bin/avm
+            ~/.cargo/bin/anchor
+            ~/.cache/solana
+          key: solana-${{ runner.os }}-${{ env.SOLANA_VERSION }}-anchor-${{ env.ANCHOR_VERSION }}-tools-${{ env.PLATFORM_TOOLS_VERSION }}
+
+      - name: Install Solana CLI
+        if: steps.toolchain-cache.outputs.cache-hit != 'true'
+        run: sh -c "$(curl -sSfL https://release.anza.xyz/${SOLANA_VERSION}/install)"
+
+      - name: Put Solana on PATH
+        run: |
+          echo "$HOME/.local/share/solana/install/active_release/bin" >> "$GITHUB_PATH"
+          # actions/cache does not create the paths it restores, so on a cache
+          # miss this does not exist yet, and cargo-build-sbf unwraps a bare
+          # NotFound if it writes platform-tools into a missing parent.
+          mkdir -p "$HOME/.cache/solana"
+
+      - name: Install Anchor ${{ env.ANCHOR_VERSION }} via avm
+        if: steps.toolchain-cache.outputs.cache-hit != 'true'
+        run: |
+          cargo install --git https://github.com/coral-xyz/anchor \
+            --tag "v${ANCHOR_VERSION}" avm --locked --force
+          avm install "${ANCHOR_VERSION}"
+          avm use "${ANCHOR_VERSION}"
+
+      - name: Toolchain versions
+        run: |
+          solana --version
+          anchor --version
+          cargo --version
+          cargo-build-sbf --version
+
+      # No `version:` here on purpose. pnpm/action-setup@v6 reads
+      # `packageManager` from package.json, and errors out if both are given
+      # ("Multiple versions of pnpm specified"). package.json is the single
+      # source of truth so CI and a contributor's machine cannot drift, which
+      # matters because pnpm-lock.yaml is lockfileVersion 6.0 and pnpm 9+
+      # rewrites it, after which `--frozen-lockfile` fails.
+      - uses: pnpm/action-setup@v6
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+
+      - name: Install
+        run: pnpm install --frozen-lockfile
+
+      # Anchor.toml points [provider] wallet at ~/.config/solana/id.json, and a
+      # runner has no wallet. tests/helpers.ts takes it as the admin and funds
+      # every other actor from it, so the localnet suite cannot start without one.
+      - name: Create the provider wallet
+        run: |
+          mkdir -p "$HOME/.config/solana"
+          solana-keygen new --no-bip39-passphrase --silent --force \
+            -o "$HOME/.config/solana/id.json"
+          solana address -k "$HOME/.config/solana/id.json"
+
+      # anchor build --no-idl -- --tools-version v1.51, then `anchor idl build`,
+      # then copy the IDL + types into packages/sdk/src/idl.
+      - name: Build program + IDL
+        run: pnpm build:program
+
+      # The IDL is committed and every TS consumer reads it from the repo, so a
+      # program change that lands without a regenerated IDL is a silent break.
+      - name: Committed IDL is up to date
+        run: |
+          if ! git diff --exit-code -- packages/sdk/src/idl; then
+            echo "::error::packages/sdk/src/idl is stale. Run 'pnpm build:program' and commit the result."
+            exit 1
+          fi
+
+      # anchor test --skip-build: boots a local validator, deploys, then runs
+      # tests/vault.ts (setup → trial → pool → guard → session keys → split →
+      # redemption → lock → safety).
+      - name: Localnet integration tests
+        run: pnpm test:program
+
+      - name: Upload validator log on failure
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: test-ledger-logs
+          path: |
+            .anchor/**/*.log
+            test-ledger/validator.log
+          if-no-files-found: ignore
+          retention-days: 7

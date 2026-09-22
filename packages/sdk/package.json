@@ -1,0 +1,24 @@
+{
+  "name": "@kydo/sdk",
+  "version": "0.2.0",
+  "description": "TypeScript client for the Kydo vault program: PDAs, account decoding, instruction builders, merkle utilities",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "node --test --require ts-node/register/transpile-only src/merkle.test.ts src/pyth.test.ts"
+  },
+  "dependencies": {
+    "@coral-xyz/anchor": "^0.31.1",
+    "@solana/spl-token": "^0.4.9",
+    "@solana/web3.js": "^1.98.0",
+    "bn.js": "^5.2.1"
+  },
+  "devDependencies": {
+    "@types/bn.js": "^5.1.6",
+    "@types/node": "^18.19.0",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.6.3"
+  }
+}

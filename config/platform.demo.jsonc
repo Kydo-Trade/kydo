@@ -1,0 +1,108 @@
+// Kydo platform parameters. ACCELERATED DEMO for testing (section 4.3 timings ≈ 10 minutes).
+// Same keys as platform.jsonc; only the clock and a few practical minimums differ.
+//
+// One platform "day" = 20 s, so the spec's own day counts become:
+//   trial          30 days  → 10 min   (then Finalize → Eligible → create pool, section 4.3)
+//   tier promotion 30 days  → 10 min   at Tier 1 → 2, and again Tier 2 → 3
+//   vesting        14 / 30 / 30 days → 4.7 / 10 / 10 min
+// Apply:  pnpm params:apply config/platform.demo.jsonc   (dev-stack.sh does this on `up`)
+{
+  // ---- money in / out ----
+  "entryFeeUsd": 800,
+  // Trader first-loss required to fund a pool, bps of the tier cap. Must cover
+  // the drawdown trigger (10%) PLUS the liquidation buffer at maxLeverageBps.
+  // Buffer = leverage x (adverse move + slippage) over the mark window, and the
+  // adverse move scales with sqrt(time):
+  //   window = keeper mark interval (5s) + oracleMaxAgeSlots + tx landing (3s)
+  //   18s window -> 0.588%/x -> 5x = 2.94% -> minFirstLossBps 1294  (original)
+  //   68s window -> 1.143%/x -> 5x = 5.71% -> minFirstLossBps 1571  (current)
+  // Widened from 25 to 150 slots because a Pyth pull round takes ~17.6s on a
+  // rate-limited RPC, so feeds could never satisfy a 10s window and
+  // evaluate_risk reverted on OracleStale forever. The cushion moved with it.
+  // Investors are made whole by the trader's own deposit; the fee's remainder is
+  // bounty reserve + revenue -- at 1571 that remainder is only $14.50 of the
+  // $800 fee, and beyond ~1600 the fee cannot cover the cushion at all. Raising
+  // leverage or loosening the mark cadence further needs a higher entryFeeUsd.
+  // Program-owned MockOracle accounts. When true, `price_authority` can write
+  // ANY price and pools mark against it. That key can mint NAV or force
+  // liquidations at will. It is an init-time flag with no instruction to flip
+  // it, so a mainnet init with false locks it out permanently. Only true for
+  // localnet/devnet, where PYTH_MODE=pull is not funded.
+  "allowMockOracle": true,
+  "minFirstLossBps": 1571,       // 10% trigger + 5.71% buffer; $785.50 of the $800 fee at the $5k Tier-1 cap
+  "bountyPerPoolUsd": 0,         // VESTIGIAL: read by nothing (see config/platform.jsonc)
+  "keeperBountyUsd": 5,          // FLAT liquidation bounty, paid per action (lock + unwind = 2). Charged to the trader's first-loss seed, so the remainder that reaches investors at reap is larger the smaller this is, but nothing makes a big pool more attractive to liquidate than a small one now, so it must be worth a transaction on a Tier-3 unwind (5 closes + oracles + priority fees), not a Tier-1 one.
+  // Liquidation bounty as bps of pool NAV, floored at keeperBountyUsd. A flat
+  // bounty is why nobody runs a third-party bot: a $30k pool pays what a $5k
+  // pool pays, so nothing prioritises the exposure that matters. One
+  // liquidation = two actions (lock + unwind) = ~0.5% of NAV at 25 bps,
+  // against the ~$76 each funded pool puts into the reserve from its fee.
+  "activationFloorUsd": 1000,    // spec: deposit ≥ $1,000 to activate a pool
+  "minDepositUsd": 50,           // spec
+
+  // ---- capital tiers (section 4.3). Spec day counts; the clock below makes them 10 minutes ----
+  "tiers": {
+    "capsUsd": [5000, 15000, 30000],   // spec caps
+    "vestDays": [14, 30, 30],          // spec, in platform days. At daySecs 86400 that is 14 and 30 REAL days
+    "promotionDays": 30                // spec, in platform days. At daySecs 86400 that is 30 REAL days of live trading per tier
+  },
+
+  // ---- CommonPool crowdsourced funding (Vault Ledger section 1) ----
+  "commonPool": {
+    "reserveBps": 1000,        // keep 10% of idle back from the funding queue
+    "depositEnabled": true     // demo money only. The redemption cascade is Phase B
+  },
+
+  // ---- the platform clock ----
+  // NOTE: this is NOT the 20-second accelerated clock the name suggests. It was
+  // moved back to real 24h days because the "Pass trial (dev)" button bypasses
+  // the trial outright (commitGraceDays >= RELAXED_GRACE_DAYS waives the day
+  // roots), so the trial no longer needed shortening. Everything else still
+  // runs on the spec's day COUNTS, which means they now take spec TIME:
+  // promotion is 30 real days and vesting 14/30 real days, not minutes. Set
+  // this to 20 if you want the accelerated demo back.
+  "daySecs": 86400,
+
+  // ---- live risk limits (section 5.3). Spec, except the two practical tweaks marked DEMO ----
+  "risk": {
+    "maxLeverageBps": 50000,    // max gross notional / NAV = 5x. With the caps below this is now the BINDING constraint, which it was not before.
+    "maxPositions": 5,
+    // Concentration caps, sized so GROSS leverage is what binds.
+    //
+    // At 40% / 60% the reachable ceiling was 1.60x, not the 5x this config
+    // advertises: five markets across three clusters cannot stack past
+    // Majors 60% + L1 60% + Memes 40%. To reach 5x at all, a single market has
+    // to be allowed past 100% of NAV, so these are 125% / 250% -- enough that
+    // gross binds with slack rather than requiring one exact five-market split.
+    //
+    // The liquidation buffer in minFirstLossBps is derived from maxLeverageBps,
+    // not from the reachable figure, so it already covered 5x and does not move.
+    // What DOES change is concentration: one market may now be 125% of NAV
+    // instead of 40%, and the buffer formula models gross exposure, not a gap in
+    // a single asset. That is the accepted trade, not an oversight.
+    "maxSingleBps": 12500,        // one market <= 125% of NAV (guard 12)
+    "maxClusterBps": 25000,       // one correlated cluster (majors / L1 / memes) <= 250% of NAV (guard 13)
+    "dailyLossBps": 400,         // spec section 5.3: 4% of day-start NAV → lock
+    "maxDrawdownBps": 1000,      // spec section 5.3: 10% from peak NAV → lock
+    "minHoldSecs": 10,           // DEMO (spec 60): so you can close within a test session
+    "maxTradesPerDay": 100,      // spec
+    "oracleMaxAgeSlots": 150,    // 60s. Sized so a ~17.6s Pyth pull round on a rate-limited RPC still lands inside the window (worst feed age ~ 2 rounds). The liquidation buffer in minFirstLossBps above is derived from this - do not raise one without the other.
+    "oracleMaxConfBps": 50,
+    "limitBandBps": 200,
+    "redemptionLockupSecs": 60,  // DEMO (spec 86400): investors can redeem 1 min after depositing
+    "cooldownSecs": 30           // DEMO (spec 604800): re-apply 30 s after a failed trial
+  },
+
+  // ---- trial pass criteria (section 5.4). Spec, except the activity floors marked DEMO ----
+  "trial": {
+    "startingBalanceUsd": 50000,
+    "profitTargetBps": 800,      // spec section 5.4: +8%
+    "maxDrawdownBps": 1000,      // spec section 5.4: ≤ 10%
+    "dailyLossBps": 400,         // spec section 5.4: ≤ 4%
+    "minActiveDays": 15,         // spec section 5.4
+    "minTrades": 20,             // spec section 5.4
+    "maxDayProfitShareBps": 4000, // spec section 5.4: no day > 40% of profit
+    "commitGraceDays": 1000      // DEMO (spec 1): >= RELAXED_GRACE_DAYS (365), which is what makes finalize_trial
+                                 // accept the attestor's signed metrics without the 30 day roots. The "Pass trial (dev)" bypass
+  }
+}
